@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Result - Medicine Backside Checker</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Analysis Result</h1>
+    <a href="/" class="back-link">&larr; Analyze another</a>
+
+    {% if error %}
+      <div class="card error">
+        <p>{{ error }}</p>
+      </div>
+    {% else %}
+      <div class="card">
+        <h2>{{ analysis.medicine_name }}</h2>
+
+        <div class="status-row">
+          <span class="badge {{ 'banned' if analysis.banned_in_india else 'ok' }}">
+            India: {{ "Banned/Restricted" if analysis.banned_in_india else ("Not flagged" if analysis.banned_in_india is not none else "Unknown") }}
+          </span>
+          <span class="badge {{ 'banned' if analysis.banned_in_usa else 'ok' }}">
+            USA: {{ "Banned/Restricted" if analysis.banned_in_usa else ("Not flagged" if analysis.banned_in_usa is not none else "Unknown") }}
+          </span>
+        </div>
+
+        <h3>Summary</h3>
+        <p>{{ analysis.status_summary }}</p>
+
+        <h3>General Info</h3>
+        <p>{{ analysis.general_info }}</p>
+
+        <p class="source-tag">Source: {{ analysis.source }}</p>
+      </div>
+
+      <div class="card disclaimer-card">
+        <strong>Disclaimer:</strong> {{ analysis.disclaimer }}
+      </div>
+
+      <details class="raw-text">
+        <summary>Raw OCR text</summary>
+        <pre>{{ ocr_text }}</pre>
+      </details>
+    {% endif %}
+  </div>
+</body>
+</html>

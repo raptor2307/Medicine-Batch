@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Medicine Checker</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Medicine Checker</h1>
+    <p class="subtitle">Upload a photo of the back of a medicine strip/box to check its ban status </p>
+
+    <form action="/analyze" method="post" enctype="multipart/form-data" class="upload-form">
+      <input type="file" name="image" accept="image/jpeg,image/png,image/webp" required>
+      <textarea
+        name="manual_text"
+        rows="3"
+        placeholder="Optional: type visible medicine text if OCR struggles, e.g. Dolo-650 Paracetamol 650 mg"
+      ></textarea>
+      <button type="submit">Analyze</button>
+    </form>
+
+    <p class="disclaimer">This tool uses AI/OCR and may make mistakes. It is not a substitute for professional medical advice.</p>
+  </div>
+</body>
+</html>
