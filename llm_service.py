@@ -235,8 +235,12 @@ Return ONLY a JSON object (no markdown fences, no preamble) with this shape:
             model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
-                max_output_tokens=400,
+                # Gemini flash is a thinking model: reasoning tokens count toward
+                # max_output_tokens, and a small cap gets fully consumed by
+                # thinking, leaving resp.text = None. Disable thinking here.
+                max_output_tokens=1000,
                 response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
         return _parse_json_response(resp.text)
@@ -299,8 +303,9 @@ info" section, respond with ONLY a JSON object (no markdown fences):
             model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
-                max_output_tokens=500,
+                max_output_tokens=1000,
                 response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
         return _parse_json_response(resp.text)
@@ -311,17 +316,50 @@ info" section, respond with ONLY a JSON object (no markdown fences):
 
 def _answer_without_web_search(identity: dict) -> dict:
     query = identity.get("search_query") or identity.get("brand_name") or identity.get("generic_name")
-    return {
+    base = {
         "medicine_name": query or "Unknown",
         "banned_in_india": None,
         "banned_in_usa": None,
         "status_summary": (
-            "No confident match was found in the local banned-medicines database. "
-            "Live web search is disabled to avoid Gemini free-tier quota usage, so please verify manually."
+            "No confident match was found in the local banned-medicines database, "
+            "so it is likely not a banned/restricted drug. Ban status was not "
+            "verified online (live web search is disabled); please verify manually."
         ),
         "general_info": "",
         "source": "local_database_no_match",
     }
+
+    # Even without a DB hit or web search, we can still give the user basic
+    # information about the medicine from the model's general knowledge.
+    if not ENABLE_LLM_SUMMARY or not query:
+        return base
+
+    prompt = f"""A user scanned a medicine that is NOT in our banned/restricted
+database. Identity extracted from the packaging: {json.dumps(identity)}.
+
+Using your general pharmacology knowledge, respond with ONLY a JSON object
+(no markdown fences):
+{{
+  "general_info": "<2-4 sentences: what this medicine/active ingredient is, its drug class, and what it is commonly used to treat. If you are unsure what the medicine is, say so plainly.>"
+}}"""
+
+    try:
+        resp = _get_client().models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                max_output_tokens=1000,
+                response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+            ),
+        )
+        info = _parse_json_response(resp.text).get("general_info", "")
+        if info:
+            base["general_info"] = info
+    except Exception as e:
+        print(f"[llm] General-info lookup failed: {e}")
+
+    return base
 
 
 def _answer_from_web_search(identity: dict) -> dict:
@@ -349,8 +387,9 @@ markdown fences, no extra commentary):
         model=GEMINI_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(
-            max_output_tokens=1000,
+            max_output_tokens=3000,
             tools=[types.Tool(google_search=types.GoogleSearch())],
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         ),
     )
     final_text = (resp.text or "{}").strip()

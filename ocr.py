@@ -13,17 +13,36 @@ Strategy:
 4. Merge results, dedupe, keep highest-confidence line per text ID, return combined raw text.
 """
 
+import importlib.util
+import shutil
+
 import cv2
 import numpy as np
 import pytesseract
 from decouple import config
 from PIL import Image
 
-OCR_ENGINE = config("OCR_ENGINE", default="tesseract").lower()
+OCR_ENGINE = config("OCR_ENGINE", default="").lower()
 TESSERACT_CMD = config("TESSERACT_CMD", default="")
 
 if TESSERACT_CMD:
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
+
+# Pick the best available engine unless the user forced one via OCR_ENGINE.
+# PaddleOCR is far stronger on foil strips / small rotated text, so prefer it
+# whenever it is installed; fall back to tesseract otherwise.
+_HAS_PADDLE = importlib.util.find_spec("paddleocr") is not None
+_HAS_TESSERACT = bool(TESSERACT_CMD) or shutil.which("tesseract") is not None
+
+if not OCR_ENGINE:
+    OCR_ENGINE = "paddle" if _HAS_PADDLE else "tesseract"
+elif OCR_ENGINE in {"paddleocr", "paddle"} and not _HAS_PADDLE:
+    print("[ocr] paddleocr not installed; falling back to tesseract.")
+    OCR_ENGINE = "tesseract"
+elif OCR_ENGINE == "tesseract" and not _HAS_TESSERACT:
+    print("[ocr] tesseract binary not found; falling back to PaddleOCR."
+          " Set TESSERACT_CMD to silence this message.")
+    OCR_ENGINE = "paddle"
 
 _paddle_ocr_instance = None
 
@@ -90,21 +109,9 @@ def preprocess_image(image_bytes: bytes) -> dict:
     # Variant C: raw color-corrected image, upscaled, for PaddleOCR (works better on
     # near-original images than binarized ones in many cases)
     color_enhanced = cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR)
-    label_crop = img[int(img.shape[0] * 0.30): int(img.shape[0] * 0.78),
-                     int(img.shape[1] * 0.12): int(img.shape[1] * 0.78)]
-    label_crop_large = cv2.resize(label_crop, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-    hsv = cv2.cvtColor(label_crop_large, cv2.COLOR_BGR2HSV)
-    red_mask_low = cv2.inRange(hsv, (0, 40, 30), (12, 255, 255))
-    red_mask_high = cv2.inRange(hsv, (165, 40, 30), (180, 255, 255))
-    red_mask = cv2.bitwise_or(red_mask_low, red_mask_high)
-    red_text = np.full(red_mask.shape, 255, dtype=np.uint8)
-    red_text[red_mask > 0] = 0
-    red_text = cv2.morphologyEx(red_text, cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8))
 
     return {
         "color": img,
-        "label_crop": label_crop,
-        "red_text": red_text,
         "gray": gray,
         "illum_corrected": illum_corrected,
         "sharpened": sharpened,
@@ -117,14 +124,21 @@ def preprocess_image(image_bytes: bytes) -> dict:
 def _run_paddleocr(variants: dict) -> list[tuple[str, float]]:
     ocr = _get_paddle_ocr()
     results = []
-    for key in ("color_enhanced", "color"):
-        out = ocr.ocr(variants[key], cls=True)
-        if not out or out[0] is None:
-            continue
-        for line in out[0]:
-            text, conf = line[1][0], line[1][1]
-            if text.strip():
-                results.append((text.strip(), float(conf)))
+    # Strip photos are often taken with the text running vertically. Paddle's
+    # angle classifier only fixes 180° flips, so also feed a 90°-rotated copy;
+    # duplicate lines across passes are deduped by the caller.
+    for key in ("color", "color_enhanced"):
+        for rotation in (None, cv2.ROTATE_90_CLOCKWISE):
+            img = variants[key]
+            if rotation is not None:
+                img = cv2.rotate(img, rotation)
+            out = ocr.ocr(img, cls=True)
+            if not out or out[0] is None:
+                continue
+            for line in out[0]:
+                text, conf = line[1][0], line[1][1]
+                if text.strip():
+                    results.append((text.strip(), float(conf)))
     return results
 
 
@@ -182,20 +196,33 @@ def _lines_from_tesseract_data(data: dict) -> list[tuple[str, float, int, int]]:
     return sorted(results, key=lambda item: (item[2], item[3]))
 
 
+def _downscale_for_tesseract(img: np.ndarray, max_dim: int = 2200) -> np.ndarray:
+    """Tesseract regularly hits the 20s timeout on full-resolution phone photos;
+    cap the longest side before feeding it."""
+    h, w = img.shape[:2]
+    scale = max_dim / max(h, w)
+    if scale < 1:
+        img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    return img
+
+
 def _run_tesseract(variants: dict) -> list[tuple[str, float]]:
     results_with_pos = []
     runs = (
-        ("red_text", "--oem 3 --psm 11"),
-        ("red_text", "--oem 3 --psm 6"),
-        ("label_crop", "--oem 3 --psm 6"),
-        ("label_crop", "--oem 3 --psm 11"),
-        ("gray", "--oem 3 --psm 11"),
-        ("color", "--oem 3 --psm 11"),
-        ("sharpened", "--oem 3 --psm 6"),
+        ("sharpened", None, "--oem 3 --psm 6"),
+        ("sharpened", None, "--oem 3 --psm 11"),
+        ("adaptive", None, "--oem 3 --psm 11"),
+        ("color", None, "--oem 3 --psm 11"),
+        # Rotated passes for strips photographed with vertical text.
+        ("sharpened", cv2.ROTATE_90_CLOCKWISE, "--oem 3 --psm 6"),
+        ("sharpened", cv2.ROTATE_90_CLOCKWISE, "--oem 3 --psm 11"),
     )
 
-    for key, config in runs:
-        pil_img = _to_pil_image(variants[key])
+    for key, rotation, config in runs:
+        img = _downscale_for_tesseract(variants[key])
+        if rotation is not None:
+            img = cv2.rotate(img, rotation)
+        pil_img = _to_pil_image(img)
         try:
             data = pytesseract.image_to_data(
                 pil_img,
@@ -222,10 +249,18 @@ def _run_tesseract(variants: dict) -> list[tuple[str, float]]:
 
 
 def _ocr_priority(text: str) -> int:
+    """Generic ranking: medicine-identifying lines first, then manufacturing /
+    regulatory details, then everything else."""
     lowered = text.lower()
-    if any(term in lowered for term in ("dolo", "paracetamol", "tablet", "tablets", "contains", "mg")):
+    if any(term in lowered for term in (
+        "tablet", "capsule", "syrup", "injection", "contains", "composition",
+        "mg", "ml", "ip", "usp",
+    )):
         return 0
-    if any(term in lowered for term in ("micro labs", "mfg", "warning", "dose")):
+    if any(term in lowered for term in (
+        "mfg", "mfd", "exp", "batch", "b. no", "b.no", "mrp",
+        "warning", "dose", "dosage", "store", "manufactured",
+    )):
         return 1
     return 2
 

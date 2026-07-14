@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -31,6 +31,13 @@ def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
+@app.get("/analyze")
+def analyze_get():
+    """Browsers land here via the address bar / refresh after a form POST;
+    send them back to the upload form instead of a 405."""
+    return RedirectResponse(url="/", status_code=303)
+
+
 @app.post("/analyze", response_class=HTMLResponse)
 async def analyze(
     request: Request,
@@ -49,7 +56,7 @@ async def analyze(
     if manual_text:
         ocr_result["raw_text"] = f"{manual_text}\n{ocr_result['raw_text']}".strip()
         ocr_result["lines"] = [(manual_text, 1.0)] + ocr_result["lines"]
-    print(f"[analyze] OCR result: {ocr_result['raw_text'][:100]}...")
+    print(f"[analyze] OCR result: {ocr_result['raw_text']}...")
 
     if not ocr_result["raw_text"].strip():
         return templates.TemplateResponse(
@@ -81,7 +88,7 @@ async def analyze_api(image: UploadFile = File(...)):
 
     image_bytes = await image.read()
     ocr_result = extract_text(image_bytes)
-    print(f"[analyze] OCR result: {ocr_result['raw_text'][:100]}...")
+    print(f"[analyze] OCR result: {ocr_result['raw_text']}...")
 
     if not ocr_result["raw_text"].strip():
         return JSONResponse({"error": "No readable text extracted."}, status_code=422)
