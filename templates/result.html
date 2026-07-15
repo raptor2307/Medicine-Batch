@@ -2,49 +2,96 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Result - Medicine Backside Checker</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Result — MediCheck</title>
+  <link rel="stylesheet" href="/static/style.css?v=2">
 </head>
 <body>
-  <div class="container">
-    <h1>Analysis Result</h1>
-    <a href="/" class="back-link">&larr; Analyze another</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.5 20.5 3.5 13.5a4.95 4.95 0 1 1 7-7l7 7a4.95 4.95 0 1 1-7 7Z"/>
+            <path d="m7 10 7 7"/>
+          </svg>
+        </span>
+        <span class="brand-name">MediCheck</span>
+      </div>
+      <a href="/" class="btn-ghost">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+        New check
+      </a>
+    </div>
+  </header>
 
+  <main class="page">
     {% if error %}
-      <div class="card error">
+      <div class="result-card error-card">
+        <span class="error-icon">
+          <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>
+          </svg>
+        </span>
+        <h2>We couldn't read that photo</h2>
         <p>{{ error }}</p>
+        <a href="/" class="btn-primary btn-inline">Try another photo</a>
       </div>
     {% else %}
-      <div class="card">
-        <h2>{{ analysis.medicine_name }}</h2>
+      <div class="result-card">
+        <p class="result-eyebrow">Analysis result</p>
+        <h1 class="medicine-name">{{ analysis.medicine_name }}</h1>
 
         <div class="status-row">
-          <span class="badge {{ 'banned' if analysis.banned_in_india else 'ok' }}">
-            India: {{ "Banned/Restricted" if analysis.banned_in_india else ("Not flagged" if analysis.banned_in_india is not none else "Unknown") }}
-          </span>
-          <span class="badge {{ 'banned' if analysis.banned_in_usa else 'ok' }}">
-            USA: {{ "Banned/Restricted" if analysis.banned_in_usa else ("Not flagged" if analysis.banned_in_usa is not none else "Unknown") }}
-          </span>
+          {% set states = [("India", analysis.banned_in_india), ("USA", analysis.banned_in_usa)] %}
+          {% for country, banned in states %}
+            {% if banned %}
+              <span class="badge banned">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
+                {{ country }}: Banned / Restricted
+              </span>
+            {% elif banned is none %}
+              <span class="badge unknown">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                {{ country }}: Unknown
+              </span>
+            {% else %}
+              <span class="badge ok">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                {{ country }}: Not flagged
+              </span>
+            {% endif %}
+          {% endfor %}
         </div>
 
-        <h3>Summary</h3>
-        <p>{{ analysis.status_summary }}</p>
+        {% if analysis.status_summary %}
+        <section class="result-section">
+          <h3>Status</h3>
+          <p>{{ analysis.status_summary }}</p>
+        </section>
+        {% endif %}
 
-        <h3>General Info</h3>
-        <p>{{ analysis.general_info }}</p>
-
-        <p class="source-tag">Source: {{ analysis.source }}</p>
-      </div>
-
-      <div class="card disclaimer-card">
-        <strong>Disclaimer:</strong> {{ analysis.disclaimer }}
+        {% if analysis.general_info %}
+        <section class="result-section">
+          <h3>About this medicine</h3>
+          <p>{{ analysis.general_info }}</p>
+        </section>
+        {% endif %}
       </div>
 
       <details class="raw-text">
-        <summary>Raw OCR text</summary>
+        <summary>Text detected in your photo</summary>
         <pre>{{ ocr_text }}</pre>
       </details>
+
+      <div class="actions-row">
+        <a href="/" class="btn-primary btn-inline">Check another medicine</a>
+      </div>
     {% endif %}
-  </div>
+  </main>
+
+  <footer class="footer">
+    <p>{{ analysis.disclaimer if analysis and analysis.disclaimer else "This tool uses AI and OCR and may make mistakes. It is not a substitute for professional medical advice." }}</p>
+  </footer>
 </body>
 </html>

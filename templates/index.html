@@ -2,25 +2,142 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Medicine Checker</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MediCheck — Medicine Ban Status Checker</title>
+  <link rel="stylesheet" href="/static/style.css?v=2">
 </head>
 <body>
-  <div class="container">
-    <h1>Medicine Checker</h1>
-    <p class="subtitle">Upload a photo of the back of a medicine strip/box to check its ban status </p>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.5 20.5 3.5 13.5a4.95 4.95 0 1 1 7-7l7 7a4.95 4.95 0 1 1-7 7Z"/>
+            <path d="m7 10 7 7"/>
+          </svg>
+        </span>
+        <span class="brand-name">MediCheck</span>
+      </div>
+    </div>
+  </header>
 
-    <form action="/analyze" method="post" enctype="multipart/form-data" class="upload-form">
-      <input type="file" name="image" accept="image/jpeg,image/png,image/webp" required>
-      <textarea
-        name="manual_text"
-        rows="3"
-        placeholder="Optional: type visible medicine text if OCR struggles, e.g. Dolo-650 Paracetamol 650 mg"
-      ></textarea>
-      <button type="submit">Analyze</button>
+  <main class="page">
+    <section class="hero">
+      <h1>Check a medicine's ban status</h1>
+      <p class="subtitle">Snap or upload a photo of the back of a medicine strip or box.<br>We'll read it and check its regulatory status in India &amp; USA.</p>
+    </section>
+
+    <form id="analyze-form" action="/analyze" method="post" enctype="multipart/form-data" class="upload-card">
+      <label class="dropzone" id="dropzone" for="image-input">
+        <input type="file" id="image-input" name="image" accept="image/jpeg,image/png,image/webp" required hidden>
+
+        <div class="dropzone-idle" id="dz-idle">
+          <span class="dz-icon">
+            <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="3"/>
+              <circle cx="9" cy="9" r="2"/>
+              <path d="m21 15-3.5-3.5a2 2 0 0 0-2.83 0L6 20"/>
+            </svg>
+          </span>
+          <p class="dz-title">Drag &amp; drop your photo here</p>
+          <p class="dz-hint">or <span class="dz-browse">browse files</span> &middot; JPEG, PNG or WEBP</p>
+        </div>
+
+        <div class="dropzone-preview" id="dz-preview" hidden>
+          <img id="preview-img" alt="Selected medicine photo preview">
+          <div class="preview-meta">
+            <span class="preview-name" id="preview-name"></span>
+            <button type="button" class="preview-remove" id="remove-btn">Change photo</button>
+          </div>
+        </div>
+      </label>
+
+      <details class="manual-entry">
+        <summary>Text not clear in the photo? Type it instead</summary>
+        <textarea
+          name="manual_text"
+          rows="2"
+          placeholder="e.g. Dolo-650 Paracetamol 650 mg"
+        ></textarea>
+      </details>
+
+      <button type="submit" class="btn-primary" id="submit-btn">
+        <span class="btn-label">Analyze photo</span>
+        <span class="btn-loading" hidden>
+          <span class="spinner"></span> Analyzing&hellip;
+        </span>
+      </button>
     </form>
 
-    <p class="disclaimer">This tool uses AI/OCR and may make mistakes. It is not a substitute for professional medical advice.</p>
-  </div>
+    <section class="steps">
+      <div class="step">
+        <span class="step-num">1</span>
+        <p>Photograph the <strong>back</strong> of the strip or box where the name is printed</p>
+      </div>
+      <div class="step">
+        <span class="step-num">2</span>
+        <p>Upload it — good lighting and a close, steady shot work best</p>
+      </div>
+      <div class="step">
+        <span class="step-num">3</span>
+        <p>Get the medicine's ban / restriction status in seconds</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>This tool uses AI and OCR and may make mistakes. It is not a substitute for professional medical advice.</p>
+  </footer>
+
+  <script>
+    const input = document.getElementById('image-input');
+    const dropzone = document.getElementById('dropzone');
+    const idle = document.getElementById('dz-idle');
+    const preview = document.getElementById('dz-preview');
+    const previewImg = document.getElementById('preview-img');
+    const previewName = document.getElementById('preview-name');
+    const removeBtn = document.getElementById('remove-btn');
+    const form = document.getElementById('analyze-form');
+    const submitBtn = document.getElementById('submit-btn');
+
+    function showPreview(file) {
+      if (!file) return;
+      previewImg.src = URL.createObjectURL(file);
+      previewName.textContent = file.name;
+      idle.hidden = true;
+      preview.hidden = false;
+    }
+
+    input.addEventListener('change', () => showPreview(input.files[0]));
+
+    ['dragenter', 'dragover'].forEach(evt =>
+      dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('drag-over'); })
+    );
+    ['dragleave', 'drop'].forEach(evt =>
+      dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('drag-over'); })
+    );
+    dropzone.addEventListener('drop', e => {
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        showPreview(file);
+      }
+    });
+
+    removeBtn.addEventListener('click', e => {
+      e.preventDefault();
+      input.value = '';
+      preview.hidden = true;
+      idle.hidden = false;
+    });
+
+    form.addEventListener('submit', () => {
+      submitBtn.disabled = true;
+      submitBtn.querySelector('.btn-label').hidden = true;
+      submitBtn.querySelector('.btn-loading').hidden = false;
+    });
+  </script>
 </body>
 </html>
