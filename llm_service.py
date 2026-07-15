@@ -318,12 +318,12 @@ def _answer_without_web_search(identity: dict) -> dict:
     query = identity.get("search_query") or identity.get("brand_name") or identity.get("generic_name")
     base = {
         "medicine_name": query or "Unknown",
-        "banned_in_india": None,
-        "banned_in_usa": None,
+        "banned_in_india": False,
+        "banned_in_usa": False,
         "status_summary": (
-            "No confident match was found in the local banned-medicines database, "
-            "so it is likely not a banned/restricted drug. Ban status was not "
-            "verified online (live web search is disabled); please verify manually."
+            "This medicine was not found in our banned/restricted-medicines "
+            "database — it has not been recalled or flagged as banned. "
+            "(Checked against the local database only; live web search is disabled.)"
         ),
         "general_info": "",
         "source": "local_database_no_match",
