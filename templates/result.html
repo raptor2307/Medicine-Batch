@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Result — MediCheck</title>
-  <link rel="stylesheet" href="/static/style.css?v=2">
+  <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body>
   <header class="topbar">
@@ -43,12 +43,20 @@
         <h1 class="medicine-name">{{ analysis.medicine_name }}</h1>
 
         <div class="status-row">
-          {% set states = [("India", analysis.banned_in_india), ("USA", analysis.banned_in_usa)] %}
-          {% for country, banned in states %}
+          {% set states = [
+            ("India", analysis.banned_in_india, analysis.restricted_in_india),
+            ("USA", analysis.banned_in_usa, analysis.restricted_in_usa),
+          ] %}
+          {% for country, banned, restricted in states %}
             {% if banned %}
               <span class="badge banned">
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
-                {{ country }}: Banned / Restricted
+                {{ country }}: Banned
+              </span>
+            {% elif restricted %}
+              <span class="badge restricted">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                {{ country }}: Restricted
               </span>
             {% elif banned is none %}
               <span class="badge unknown">

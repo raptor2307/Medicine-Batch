@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MediCheck — Medicine Ban Status Checker</title>
-  <link rel="stylesheet" href="/static/style.css?v=2">
+  <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body>
   <header class="topbar">
@@ -29,7 +29,7 @@
 
     <form id="analyze-form" action="/analyze" method="post" enctype="multipart/form-data" class="upload-card">
       <label class="dropzone" id="dropzone" for="image-input">
-        <input type="file" id="image-input" name="image" accept="image/jpeg,image/png,image/webp" required hidden>
+        <input type="file" id="image-input" name="image" accept="image/jpeg,image/png,image/webp" hidden>
 
         <div class="dropzone-idle" id="dz-idle">
           <span class="dz-icon">
@@ -60,6 +60,8 @@
           placeholder="e.g. Dolo-650 Paracetamol 650 mg"
         ></textarea>
       </details>
+
+      <p class="form-error" id="form-error" hidden>Please upload a photo or type the medicine text.</p>
 
       <button type="submit" class="btn-primary" id="submit-btn">
         <span class="btn-label">Analyze photo</span>
@@ -133,7 +135,18 @@
       idle.hidden = false;
     });
 
-    form.addEventListener('submit', () => {
+    const formError = document.getElementById('form-error');
+    const manualText = form.elements.manual_text;
+
+    form.addEventListener('submit', e => {
+      const hasFile = input.files.length > 0;
+      const hasText = manualText.value.trim().length > 0;
+      if (!hasFile && !hasText) {
+        e.preventDefault();
+        formError.hidden = false;
+        return;
+      }
+      formError.hidden = true;
       submitBtn.disabled = true;
       submitBtn.querySelector('.btn-label').hidden = true;
       submitBtn.querySelector('.btn-loading').hidden = false;

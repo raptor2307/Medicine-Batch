@@ -249,6 +249,23 @@ Return ONLY a JSON object (no markdown fences, no preamble) with this shape:
         return _identity_from_ocr_text(raw_ocr_text)
 
 
+def _country_flag(country: str, entries: list[str]) -> bool:
+    """DB entries carry annotations like "India (temporarily banned in 2013)",
+    so match the country as a substring, not by exact list membership."""
+    return any(country.lower() in entry.lower() for entry in entries)
+
+
+def _flags_from_match(match: dict) -> dict:
+    banned_in = match.get("banned_in", [])
+    restricted_in = match.get("restricted_in", [])
+    return {
+        "banned_in_india": _country_flag("india", banned_in),
+        "banned_in_usa": _country_flag("usa", banned_in),
+        "restricted_in_india": _country_flag("india", restricted_in),
+        "restricted_in_usa": _country_flag("usa", restricted_in),
+    }
+
+
 def _answer_from_best_db_match(identity: dict, matches: list[dict]) -> dict:
     best_match = matches[0] if matches else {}
     medicine_name = (
@@ -269,8 +286,7 @@ def _answer_from_best_db_match(identity: dict, matches: list[dict]) -> dict:
 
     return {
         "medicine_name": medicine_name,
-        "banned_in_india": "India" in banned_in,
-        "banned_in_usa": "USA" in banned_in,
+        **_flags_from_match(best_match),
         "status_summary": f"{medicine_name} is {status}. {best_match.get('reason', '')}".strip(),
         "general_info": best_match.get("category", ""),
         "source": "internal_database",
@@ -308,7 +324,11 @@ info" section, respond with ONLY a JSON object (no markdown fences):
                 thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
-        return _parse_json_response(resp.text)
+        result = _parse_json_response(resp.text)
+        # The LLM writes the prose, but the DB record decides the badges —
+        # otherwise the model can contradict our own banned list.
+        result.update(_flags_from_match(matches[0]))
+        return result
     except Exception as e:
         print(f"[llm] Vector-match summarization failed, using raw DB match: {e}")
         return _answer_from_best_db_match(identity, matches)
@@ -425,6 +445,8 @@ def analyze_medicine(raw_ocr_text: str) -> dict:
     else:
         result = _answer_without_web_search(identity)
 
+    result.setdefault("restricted_in_india", False)
+    result.setdefault("restricted_in_usa", False)
     result["identity"] = identity
     result["disclaimer"] = DISCLAIMER
     return result

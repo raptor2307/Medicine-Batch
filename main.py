@@ -41,18 +41,27 @@ def analyze_get():
 @app.post("/analyze", response_class=HTMLResponse)
 async def analyze(
     request: Request,
-    image: UploadFile = File(...),
+    image: UploadFile | None = File(default=None),
     manual_text: str = Form(default=""),
 ):
-    if image.content_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(400, "Unsupported file type. Upload JPEG, PNG, or WEBP.")
-
-    image_bytes = await image.read()
-    if not image_bytes:
-        raise HTTPException(400, "Empty file.")
-
-    ocr_result = extract_text(image_bytes)
     manual_text = manual_text.strip()
+    # Browsers submit an empty file part when no photo is chosen.
+    has_image = image is not None and image.filename
+
+    if not has_image and not manual_text:
+        raise HTTPException(400, "Upload a photo or type the medicine text.")
+
+    ocr_result = {"raw_text": "", "lines": [], "engine": "none"}
+    if has_image:
+        if image.content_type not in ALLOWED_CONTENT_TYPES:
+            raise HTTPException(400, "Unsupported file type. Upload JPEG, PNG, or WEBP.")
+
+        image_bytes = await image.read()
+        if not image_bytes:
+            raise HTTPException(400, "Empty file.")
+
+        ocr_result = extract_text(image_bytes)
+
     if manual_text:
         ocr_result["raw_text"] = f"{manual_text}\n{ocr_result['raw_text']}".strip()
         ocr_result["lines"] = [(manual_text, 1.0)] + ocr_result["lines"]

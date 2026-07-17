@@ -5,6 +5,7 @@ before falling back to a live web search via the LLM.
 """
 
 import json
+import re
 from pathlib import Path
 
 import chromadb
@@ -46,13 +47,26 @@ def init_vector_store(force_reseed: bool = False):
     global _collection
     client = _get_client()
     _collection = client.get_or_create_collection(
-        name=COLLECTION_NAME, embedding_function=_embedder
+        name=COLLECTION_NAME,
+        embedding_function=_embedder,
+        metadata={"hnsw:space": "cosine"},
     )
+
+    # Rebuild collections created before we switched to cosine space and
+    # started storing aliases in metadata — their distances/thresholds and
+    # exact-match lookups would otherwise be wrong.
+    if not force_reseed and _collection.count() > 0:
+        space = (_collection.metadata or {}).get("hnsw:space")
+        sample = _collection.get(limit=1)
+        has_aliases = bool(sample["metadatas"]) and "aliases" in sample["metadatas"][0]
+        force_reseed = space != "cosine" or not has_aliases
 
     if force_reseed:
         client.delete_collection(COLLECTION_NAME)
         _collection = client.get_or_create_collection(
-            name=COLLECTION_NAME, embedding_function=_embedder
+            name=COLLECTION_NAME,
+            embedding_function=_embedder,
+            metadata={"hnsw:space": "cosine"},
         )
 
     if _collection.count() == 0:
@@ -65,6 +79,7 @@ def init_vector_store(force_reseed: bool = False):
             metadatas=[
                 {
                     "name": e["name"],
+                    "aliases": json.dumps(e.get("aliases", [])),
                     "banned_in": json.dumps(e["banned_in"]),
                     "restricted_in": json.dumps(e.get("restricted_in", [])),
                     "reason": e["reason"],
@@ -83,13 +98,46 @@ def get_collection():
     return _collection
 
 
+def _match_from_meta(meta: dict, distance: float) -> dict:
+    return {
+        "name": meta["name"],
+        "banned_in": json.loads(meta["banned_in"]),
+        "restricted_in": json.loads(meta["restricted_in"]),
+        "reason": meta["reason"],
+        "category": meta["category"],
+        "distance": distance,
+    }
+
+
+def _exact_name_matches(query_text: str, collection) -> list[dict]:
+    """Whole-word match of any known medicine name/alias inside the query text.
+    Catches cases the embedding search misses when the query carries OCR noise."""
+    lowered = query_text.lower()
+    matches = []
+    for meta in collection.get()["metadatas"]:
+        candidates = [meta["name"], *json.loads(meta.get("aliases", "[]"))]
+        for candidate in candidates:
+            # "Analgin (Metamizole / Dipyrone)" -> match on "analgin"
+            candidate = candidate.split("(")[0].strip().lower()
+            if candidate and re.search(rf"\b{re.escape(candidate)}\b", lowered):
+                matches.append(_match_from_meta(meta, 0.0))
+                break
+    return matches
+
+
 def search_banned_db(query_text: str, top_k: int = 3) -> list[dict]:
     """
-    Searches the vector DB for medicines matching the query text.
-    Returns a list of matches with similarity distance; empty list if nothing
-    clears the similarity threshold (caller should fall back to web search).
+    Searches the banned-medicines DB for the query text: exact name/alias
+    matching first, then vector similarity. Returns a list of matches; empty
+    list if nothing clears the similarity threshold (caller should fall back
+    to web search).
     """
     collection = get_collection()
+
+    exact = _exact_name_matches(query_text, collection)
+    if exact:
+        return exact
+
     results = collection.query(query_texts=[query_text], n_results=top_k)
 
     matches = []
@@ -99,15 +147,5 @@ def search_banned_db(query_text: str, top_k: int = 3) -> list[dict]:
     for i in range(len(results["ids"][0])):
         distance = results["distances"][0][i]  # cosine distance, lower = closer
         if distance <= MATCH_THRESHOLD:
-            meta = results["metadatas"][0][i]
-            matches.append(
-                {
-                    "name": meta["name"],
-                    "banned_in": json.loads(meta["banned_in"]),
-                    "restricted_in": json.loads(meta["restricted_in"]),
-                    "reason": meta["reason"],
-                    "category": meta["category"],
-                    "distance": distance,
-                }
-            )
+            matches.append(_match_from_meta(results["metadatas"][0][i], distance))
     return matches

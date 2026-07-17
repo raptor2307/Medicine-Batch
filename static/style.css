@@ -299,6 +299,18 @@ body {
   gap: 10px;
 }
 
+/* Author display rules above would otherwise override the UA's [hidden] rule. */
+[hidden] {
+  display: none !important;
+}
+
+.form-error {
+  margin: 10px 0 0;
+  color: #d33;
+  font-size: 14px;
+  text-align: center;
+}
+
 .spinner {
   width: 17px;
   height: 17px;
@@ -406,6 +418,11 @@ body {
 .badge.banned {
   color: var(--bad-ink);
   background: var(--bad-bg);
+}
+
+.badge.restricted {
+  color: var(--warn-ink);
+  background: var(--warn-bg);
 }
 
 .badge.unknown {
